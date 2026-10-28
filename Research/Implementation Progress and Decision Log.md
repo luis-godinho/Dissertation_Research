@@ -1,7 +1,7 @@
 ---
 status: evolving
 tags: [research, implementation, decisions, progress]
-updated: 2026-10-24
+updated: 2026-10-28
 ---
 
 # Implementation Progress and Decision Log
@@ -32,6 +32,8 @@ Record what has been implemented, the decisions taken and their rationale, the e
 - **Deferred:** excluded from the current milestone, not abandoned.
 
 This snapshot is based on implementation reports and the subsequent correction report supplied by the project owner on 2026-10-24. Tests were not independently rerun for this research note. A documentation commit does not publish the implementation code or establish deployment/runtime success.
+
+The 2026-10-24 snapshot and next-checkpoint statement are retained as dated history. The continuation dated 2026-10-28 records subsequent implementation, verification and superseding decisions. Earlier results keep their original scope; later work is not retroactively attributed to them.
 
 ## Current snapshot — 2026-10-24
 
@@ -280,3 +282,101 @@ Preserve dated history and explain supersession. Keep design decisions, implemen
 ## Change history
 
 - 2026-10-24: recorded the dev-based implementation vehicle, synthetic fixture and limited native-frame decisions; preserved the initial 43-test run and review finding, then recorded its correction, local unpushed commit `b6476c0`, and latest 44-test focused verification. Cache/security/performance extensions remain explicitly deferred.
+- 2026-10-28: added native-frame browser verification, the revised visual-cache demonstration scope, native RAM core and sliding-window retention results, and the next viewer-integration decisions. Earlier dated entries remain historical.
+
+## Continuation — 2026-10-28
+
+### Current snapshot
+
+| Area | State | Verification / limit |
+|---|---|---|
+| Implementation vehicle | Same `feat/dissertation-frame-baseline` branch | Latest inspected revision `fe2bf244a229725ed4efd74ee6b02a84bac45661`, with additional local changes tracked separately |
+| Instance selection | Existing selected-instance path retained | The enumeration replacement was reverted; no QIDO-first restoration is required |
+| Native-frame transport and wrapper | Implemented and tested | Bounded binary multipart validation; transient Part-10 decode container; no persistent wrapper storage |
+| Native-frame viewport | Implemented and exercised through nginx and Chromium | One visible viewport, frame navigation and stale-selection handling |
+| P0/P1 controls | Live baseline established | Full-instance and selected-frame hashes match the synthetic fixture; nine frame responses for 1–8 plus revisit |
+| Native RAM core | Implemented; focused tests passing | 58-test frontend suite; no viewer integration at that stage |
+| Sliding-window retention | Implemented; focused tests passing | 70-test frontend suite; pure policy, no neighbour fetching |
+| P2 viewer integration | Selected next work | No completed integration or live P2 hit result yet |
+| Residency visualisation | Planned | Actual cache state must drive colours and counters |
+| OPFS, encryption and shared-key access | Deferred | OPFS/BOTH remain disabled in the RAM demonstration; no plaintext OPFS stage selected |
+
+The 58- and 70-test results are successive suite runs, not independent totals to add together. A passing cache-core or policy test is not evidence that the browser already uses the cache.
+
+### ID-12 — Expand the demonstration while preserving comparison controls
+
+Decision: extend the first presentation to include a separately labelled P2 native-byte RAM tier, sliding-window retention, live residency colours, counters and lifecycle checks. Preserve P0 full-instance viewing and P1 demand-only retrieval.
+
+Reason: frame display establishes the retrieval path, but does not demonstrate what is retained, reused or evicted. Those transitions need to be visible and independently measurable.
+
+Consequence: this supersedes the earlier first-presentation exclusion of P2, not the definition of P1. Implement cache core, window policy, viewer integration, visualisation and lifecycle changes separately, then rehearse the combined demonstration. No cache hit, performance gain or secure persistence is claimed before it is exercised.
+
+### ID-13 — Obtain live pixel context without replacing enumeration
+
+Decision: use the existing selected-instance locator and load pixel attributes through instance metadata once per open. Expose the same source file's File Meta Information TransferSyntaxUID through `X-Source-Transfer-Syntax`, keeping group `0002` out of the JSON dataset.
+
+Reason: current search/index fields do not supply the full pixel context, and dataset metadata alone does not carry the stored file's transfer syntax. Hardcoding that syntax or bootstrapping validation from an initial frame response was not selected.
+
+Consequence: validate identity and the supported profile before frame retrieval; reject missing or invalid source syntax. Count metadata separately from frame-body requests. The header describes source encoding, not negotiated JSON encoding, integrity, freshness or study permission. The earlier enumeration replacement stays reverted.
+
+### ID-14 — Bound native payload reuse and make ownership explicit
+
+Decision: use one RAM cache per active viewer scope, keyed by principal/session/study/series/SOP/frame, native representation, transfer syntax and source version. Copy incoming payloads and return copies on hits; do not retain mutable caller keys or buffers.
+
+Reason: native bytes are the reusable experimental unit. Wrappers, decoded Cornerstone images and worker/GPU memory are separate representations with separate ownership.
+
+Consequence: configurable demonstration defaults are 32 KiB retained bytes, 8 KiB per entry, five entries and 64 history events. Hard byte limits take priority. Returned-copy and bypass byte totals are cumulative, not current occupancy or process-memory measurements. Monotonic generations reject late insertion; close clears owned entries. Public events use safe identities and explicitly signal history overflow so the visual consumer can resynchronise. These settings are not clinical sizing or transport limits.
+
+### ID-15 — Retain a sliding window without silently prefetching
+
+Decision: retain a configurable one-frame-behind/one-frame-ahead window by default, superseding the earlier radius-two planning value. Keep window epoch distinct from session/request generation.
+
+Reason: retention of visited frames can be tested without simultaneously introducing speculative requests or a larger scheduler.
+
+Consequence: desired neighbours are not automatically resident or fetched. Evict outside-window entries first, then apply deterministic distance/recency pressure decisions. Prefer the current frame only within hard limits; oversized frames may remain transiently displayable without reusable residency. Admission accounts for incoming bytes and same-key replacement. Wrong-context, stale-epoch, outside-window and oversized completions do not trigger pressure eviction. Prefetch remains a separately controlled later comparison.
+
+### ID-16 — Visualise actual residency rather than intended storage
+
+Decision: add a compact numbered frame strip with absent, native RAM, committed OPFS and both-tier states; show requested/displayed frames, desired window, pending operations and errors separately. Use labels or shapes as well as colours.
+
+Reason: displayed content is not automatically a native cache entry, a desired window can contain missing frames, and an eventual frame may exist in both tiers.
+
+Consequence: only absent/RAM states become active in the first RAM demonstration. OPFS/BOTH stay explicitly disabled until real storage and viewer integration exist; queued writes must not appear as completed persistence. Show actual frame calls, hits/misses, eviction, native bytes and budget. No unencrypted OPFS mode has been selected. The final target remains shared encrypted OPFS plus bounded native RAM, with session-only P4a distinct from backend-recoverable P4b.
+
+### ID-17 — Add P2 through the existing session and presenter
+
+Decision: retain P1 as default and add P2 to the existing native-frame session. P2 uses native RAM on a hit and the same authenticated validated transport on a miss. Both paths create fresh wrappers and request-unique presentation identities.
+
+Reason: avoid a second viewer/cache and prevent an old decoded image from being mistaken for the selected native-byte source.
+
+Consequence: keep a small immutable entry-ID/key mapping, not another payload store; recheck generation, window and occupancy before mutation. Mode switches invalidate pending presentation as well as fetch, reset owned reusable cache state and keep the last displayed source truthful. Clear RAM does not globally purge unrelated viewers. Restrict the fixed `synthetic-study-v1` version to recognised fixture instances; disable P2 when valid source-version scope is unavailable. Implementation and integration verification remain pending.
+
+### 2026-10-25 to 2026-10-27 — Native-frame frontend and browser baseline
+
+Implemented authenticated one-frame transport, bounded binary multipart parsing, the transient single-frame wrapper, bounded metadata loading and a dedicated native-frame viewport. Missing/blank-token requests were corrected to reject before fetching and covered by zero-fetch assertions. Hidden staging and unique image identities prevent superseded work from being deliberately published as the new selection.
+
+Live verification through nginx and a temporary Chromium context established:
+
+- P0 opens and retrieves the expected 66,876-byte full instance, with a matching fixture hash.
+- P1 displays frames 1, 4 and 8. Native payloads are 8,192 bytes; multipart bodies are 8,337 bytes. Selected payload hashes, including revisit 1, match the fixture manifest.
+- Sequential selections 1–8 and revisit 1 produce nine frame responses and one metadata response. Auth/search/preview traffic is counted separately. Surrounding PNG thumbnails are not native payloads or fallback.
+- Delayed frame 2 is aborted after frame 3 is selected; frame 3 remains visible. The observed close scenario produces no additional frame response.
+- No native payload persistence is observed in the inspected application-origin storage APIs. Existing token/plugin state is not frame content; this does not establish absence from process, worker or OS memory.
+
+The existing running environment and indexed synthetic fixture were reused without rebuild or reindex. The fixture was served through a pre-existing broad bind mount and network-published development services. Matching hashes establish the expected synthetic bytes, not compliance with the earlier isolation objective or production security. That distinction remains unresolved.
+
+Limits: no live wrapper-PixelData hash, complete delayed-decode/close-race coverage, backend disk/TTFB, worker/WASM, GPU or physical-paint measurement. Selection-to-response/commit timings are application boundaries, not a passing eight-image/500 ms result.
+
+### 2026-10-27 to 2026-10-28 — Native RAM core and window policy
+
+Implemented `nativeRamCache.ts` with copied ownership, immutable keys, hard limits, deterministic LRU, failed-replacement atomicity, monotonic generation checks, close rejection and bounded safe events/snapshots. Twelve new tests brought the focused frontend suite to 58 passing, zero failures. Type-check, lint and build passed. Viewer/session/backend paths were unchanged.
+
+Implemented `nativeRamWindowPolicy.ts` with clamped bounds, desired-versus-resident state, outside-window and pressure eviction, current-frame preference, stale/context admission rejection, oversized bypass and incoming/replacement accounting. Twelve additional tests brought the suite to 70 passing, zero failures. Type-check, lint and build passed. Tests applied decisions through the real cache's invalidation API; the policy itself does not mutate or fetch.
+
+The latest inspected revision is `fe2bf244a229725ed4efd74ee6b02a84bac45661`, with local additions identified separately. These results establish the core and policy, not browser P2 cache hits, a completed residency strip or a performance benefit. Remote publication of the underlying changes is not asserted here.
+
+### Next checkpoint — 2026-10-28
+
+Integrate the existing native cache and window policy into the viewer without replacing P0/P1. Verify direct selections `1,2,1`: three frame requests in P1, two in retained P2. Also test eviction/revisit misses, fresh wrapper input on hits, mode switches, clear RAM, close and pending-presentation invalidation. Distinguish unit/integration tests from live browser behaviour.
+
+Then add the truthful residency strip and lifecycle handling, and capture the P0/P1/P2 comparison with matching cache snapshots, counters and network observations. OPFS, encryption, study policy, shared keys, prefetch and the eight-image/500 ms target remain separate work. No plaintext persistence, cross-user security or completed P2 demonstration is implied.
