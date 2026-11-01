@@ -284,6 +284,7 @@ Preserve dated history and explain supersession. Keep design decisions, implemen
 - 2026-10-24: recorded the dev-based implementation vehicle, synthetic fixture and limited native-frame decisions; preserved the initial 43-test run and review finding, then recorded its correction, local unpushed commit `b6476c0`, and latest 44-test focused verification. Cache/security/performance extensions remain explicitly deferred.
 - 2026-10-28: added native-frame browser verification, the revised visual-cache demonstration scope, native RAM core and sliding-window retention results, and the next viewer-integration decisions. Earlier dated entries remain historical.
 - 2026-11-01: recorded the RAM-only browser evidence, the decision to add a plaintext OPFS + RAM control ahead of the encrypted tier, the storage adapter and its test results, the adapter review findings, and the next sequencing decisions. Earlier dated entries remain historical.
+- 2026-11-01 (later): recorded the move-only adapter decision and fix, the dual-window policy, the P3 session, viewer and residency strip, the snapshot-freshness decision, and the real-browser evidence for the plaintext OPFS control. Earlier dated entries remain historical.
 
 ## Continuation — 2026-10-28
 
@@ -507,3 +508,122 @@ Real-browser check (approved in trimmed form, not run): a temporary browser prof
 Implement the pure dual-window policy, run the trimmed real-browser check, then decide the publication fallback and correct the adapter's High findings (with F4, F5 and F7 and tests for two live namespaces and activation failure). Only then integrate the OPFS tier into the viewer as P3, add the committed-state residency visuals and Clear OPFS / Clear Both controls, cover the asynchronous lifecycle cases, and optionally extend the one-neighbour prefetch to P3. Live dual-tier evidence follows, compared against the RAM-only baseline with equal traces, pacing and termination.
 
 Standing limits: the plaintext tier is not encryption, access control, freshness or secure erasure; leftovers after a crash and the shared root cap are accepted limitations; real OPFS behaviour is unverified until the browser check; encryption, key custody, study-level policy and shared reuse remain separate, deferred work. No performance, total-memory, physical-paint or eight-image/500 ms claim is made.
+
+## Continuation — 2026-11-01 (P3 integration and browser evidence)
+
+This continuation supersedes the "planned" and "not yet implemented" states in the earlier 2026-11-01 snapshot, and resolves the open fallback question in ID-23. Earlier entries keep their original scope.
+
+### Current snapshot
+
+| Area | State | Verification / limit |
+|---|---|---|
+| Implementation vehicle | Same `feat/dissertation-frame-baseline` branch | Local commits, none pushed: `aa74628` (fixture digest verification), `24d8a3e` (plaintext OPFS adapter), `9eba97b` (dual-window policy), `3ec80a4` (P3 session integration), `fdc82dc` (P3 entry and status), `a9ab048` (P3 residency strip and clear controls), `5c99d43` (P3 Clear RAM), `bcd6a56` (snapshot freshness fix). Browser evidence taken at `bcd6a56` |
+| Plaintext OPFS adapter | Implemented, move-only; real-browser smoke passed | Chromium 153, temporary loopback origin and profile, owned root only; replacement of an existing entry verified |
+| Dual-window policy | Implemented; unit-tested | Pure planner: no fetching, no storage mutation |
+| P3 session integration | Implemented; Node-tested and browser-verified | Read order RAM, verified OPFS, network |
+| P3 viewer: entry, status, strip, clear controls | Implemented; SSR-tested and browser-verified | Interaction paths exercised in the browser run, not in component tests |
+| P3 real-browser evidence | Complete for the approved arms | All pre-registered request and tile predictions matched; synthetic data only |
+| Focused frontend suite | 223 tests passing | Successive runs of one growing suite, not additive |
+| Optional P3 prefetch | Not started | Separate decision |
+| Encryption, key custody, study policy, shared reuse | Deferred | Unchanged |
+
+Test progression of the focused suite: 145 (adapter) to 164 (dual-window policy, +19) to 175 (adapter fix, +11) to 189 (P3 session, +14) to 191 (default-configuration trace and counter-integrity tests) to 197 (entry and status, +6) to 216 (strip, +19) to 218 (Clear RAM, +2) to 223 (snapshot freshness, +5).
+
+### ID-24 — Require native move() for plaintext publication
+
+Decision: remove the copy-and-delete publication fallback. `open` reports move support and returns unavailable when `FileSystemFileHandle.move()` is missing; the viewer then enters the labelled degraded RAM-only state. The earlier forced no-move comparison arm is cancelled.
+
+Reason: the fallback caused both the unreserved peak (copy and original coexisting near the root cap) and the orphan-final residue. The target browser supports `move()`, which the real-browser smoke confirmed. Removing the fallback is smaller and safer than reserving a second copy and adding an orphan-recovery protocol.
+
+Consequence: publication peak is temp plus the previous final during a replacement, and `temporaryFileBytes` is 0 on the normal write path. A failed move on a new entry deletes the temporary file and the final name only because the final did not exist before; a failed replacement deletes only the temporary file, re-verifies the old entry (size, header, context, checksum, payload digest) and keeps it indexed. No `committed` event follows a failure. The same change fixed the other review findings: close and clear return `failed: write-in-flight` instead of claiming cleanup, keep the lock and lease, and allow a retry; `open` holds the lock throughout and writes the lease last; actual scanned bytes and unmaterialised reservations are counted separately; recovery returns `ok`, `skipped`, `partial` or `failed` with a reason; `activate` changes ownership only after the lease write succeeds; two live namespaces share the root cap without deleting each other. The multi-tab assumption for own-temporary-file recovery without locks (F9) remains documented. A move is a browser operation, not a transaction; no crash-atomicity claim is made.
+
+### ID-25 — Plan retention separately from execution, and retry a blocked publication once
+
+Decision: a pure policy plans RAM 1/1 and OPFS 3/3 retention over actual committed descriptors, pending reservations and external root bytes. The session executes the plan: delete, wait for confirmed deletion, replan once, then publish once. A publication still blocked after that replan is dropped with a visible capacity reason. There are no timers and no loops.
+
+Reason: separating the decision from the effect keeps the policy deterministic and testable, and planned deletions cannot count as free space in the same plan because the bytes are only free after confirmation.
+
+Consequence: a jump across the window needs a delete, confirm, replan sequence, and its publication may be dropped; this is visible through a counter and is not retried in the background. Window maintenance never fetches and never publishes bytes it was not given. Pending deletes stay counted and ineligible until confirmed; failed deletes remain counted.
+
+### ID-26 — Report the origin of a P3 result separately from the legacy source field
+
+Decision: the true origin of a completed selection is `opfsSource` and `lastSource` (`network`, `ram` or `opfs`), with RAM promotion as a separate boolean. The legacy `source` field stays `network` or `ram` so the existing viewer types are unchanged, and an OPFS hit reads as `ram` there.
+
+Reason: an OPFS hit promoted to RAM must not be relabelled as a RAM hit, and it is not a network request. The first implementation reported `lastSource` as `ram` on an OPFS hit; a test written to check counter integrity exposed this and it was corrected.
+
+Consequence: an OPFS hit counts as a RAM lookup miss, not a RAM hit, and leaves the network and demand counters unchanged. Evidence tables must use `opfsSource` or `lastSource` for origin and treat the legacy field as a compatibility value.
+
+### ID-27 — Maintain windows after every completed selection and reconcile storage from adapter truth
+
+Decision: after every completed P3 selection, including RAM and OPFS hits, run the policy and execute only its confirmed deletions. The session's OPFS map is reconciled from adapter results, events and snapshots, so a late write that completes after navigation, close or logout still updates the map even though it cannot affect the display, RAM promotion or user-facing counters.
+
+Reason: a physically committed file that the session ignores becomes an untracked orphan, and a disk tier that is only trimmed on network writes would keep outside-window entries indefinitely.
+
+Consequence: a late committed entry outside the OPFS window is planned for deletion. Forward all-hit navigation is impossible once the ahead entries are deleted, so OPFS hits occur only on revisits within three frames after the 1/1 RAM window has moved on. The demonstration trace is therefore `1,2,3,4,5,2`. A single publication is pending at a time; a newer payload may supersede one that has not started, an active adapter write always completes, and a payload arriving while a write is active is dropped as `publication-busy` and counted.
+
+### ID-28 — Paint the P3 view from committed state and show an unavailable disk tier explicitly
+
+Decision: realise the visual contract of ID-22 with a bounded 24-tile dual-tier strip, painted only from adapter-committed frames. The session exposes frame numbers and window bounds only (no aliases, keys, UIDs or payloads). In degraded and cleanup-required states the disk tier is text-labelled and hatched "unavailable/unknown" rather than grey, and the cleanup-required text says that plaintext frames may still be present on disk until the retry succeeds. The RAM-only strip is hidden in P3. A permanent banner names the mode as plaintext OPFS, synthetic and not encrypted, with no lock or shield icon.
+
+Reason: an unobserved disk tier must not read as an empty one, and a pending write, window membership or intent must not read as residency.
+
+Consequence: independent badges show pending write (`S`), pending delete (`X`), storage error, OPFS read in progress and network pending, alongside requested and displayed markers and the two window outlines. A failed delete keeps the physical entry, shows the error and marks it ineligible, with no deletion claim. Clear RAM, Clear OPFS and Clear Both act on the owned namespace only; Clear Both reports a partial state if OPFS cleanup fails after the RAM clear. Clear RAM keeps the disk tier.
+
+### ID-29 — Publish P3 view state from one point and test the emitted snapshot, not only recomputed metrics
+
+Decision: every P3 state change that affects a derived view field emits through a single publish helper, and tests compare the last emitted subscription snapshot with a freshly derived one after each awaited operation in the P3 scenarios.
+
+Reason: the first real-browser smoke showed the pending-write badge and counter staying stale after the write had committed. The session cleared the pending publication without emitting a new snapshot, and the viewer renders from the last emitted snapshot. The Node tests had read freshly computed metrics, so they could not see it. The browser run was stopped at that defect, which was not fixed inside the evidence task, and was restarted from the smoke after a separate fix.
+
+Consequence: all audited mutation paths now emit (pending publication, pending write and delete, committed map and counters, dropped and failed publications, reading and network-pending state, error and ineligible frames, adapter event reconciliation, Clear OPFS, close and retry, enter and exit, promotions, frame-body counters). The viewer's metrics export now includes `lastSource`. The stale badge did not recur in any later arm.
+
+### 2026-11-01 — Real-browser adapter smoke
+
+Chromium 153, temporary loopback origin and temporary profile, owned root only, synthetic frame. Wrong-digest write rejected; a correct 8,192-byte native frame stored as 8,272 file bytes and read back exact and verified; a read without a digest was skipped; clear and close removed the namespace; no console or page errors. After the adapter fix the smoke was rerun: a second write of the same key returned `replaced`, with one final file and no temporary file, and the second read was exact and verified. Move support was recorded as available; the no-move arm was not run, by decision ID-24.
+
+Limits: one browser build, a loopback origin rather than the application origin, no reload persistence, quota stress, multi-tab or crash behaviour.
+
+### 2026-11-01 — P3 browser evidence
+
+Setup: frontend-only rebuild and restart; backend, volumes, fixture and index untouched; existing headless Chromium 153 at 1440×900; a fresh profile per arm; local traffic only; synthetic data and credentials supplied through the environment. Predictions were written before each run and not edited afterwards. Frame-body requests are counted from mode entry.
+
+| Step (P3, RAM 1/1, OPFS 3/3) | Cumulative requests | Tiles after settle |
+|---|---:|---|
+| 1 | 1 | 1 both |
+| 2 | 2 | 1, 2 both |
+| 3 | 3 | 1 disk only; 2, 3 both |
+| 4 | 4 | 1, 2 disk only; 3, 4 both |
+| 5 | 5 | 1 absent (deleted); 2, 3 disk only; 4, 5 both |
+| back to 2 (one slider change) | 5 | 2 both (OPFS hit, promoted to RAM); 3, 4, 5 disk only; 1 absent |
+
+- Two runs of the P3 main trace matched. OPFS bytes were 8,192 native / 8,272 file / 8,389 root at one entry and 32,768 / 33,088 / 33,205 at four entries; `publication-busy` was 0 and pending writes and deletes were 0 after settle.
+- Clear RAM after step 5 left RAM at 0 entries and the disk tier at four; revisiting 2 was an OPFS hit with promotion and still 5 requests.
+- The P2 control (same trace, same viewport and pacing, prefetch off, two runs) needed 6 frame-body requests, because frame 2 had left the 1/1 RAM window. The difference is a cache-state difference, not a speed result.
+- Degraded start (move removed by a test-only script) showed the labelled RAM-only state, a storage error, a hatched disk tier, no disk or both tiles, and one request.
+- Mode exit and logout left the owned namespace absent, and the next P2 selection was a network request.
+- A forced namespace-removal failure (test-only script) produced the cleanup-required state with the plaintext-on-disk warning; after the failure was lifted, the retry closed the session and the namespace was absent.
+- All successful arms ended with no owned namespace left; no console or page errors.
+
+Differences recorded: one aborted frame request with no matching response in the first P3 main run, with no effect on any counter, tile or displayed frame and not reproduced in the second run; its cause is not established because the frame number was not retained. Two harness-only count-check defects were corrected and are not application results. Aborted `plugins` requests are classified as non-frame. Settle times of roughly 1.4 to 2.0 s per selection are publication-lag notes, and elapsed time between selections differs across arms because the P3 arms wait for settling, so no timing comparison is made.
+
+Limits: real browser OPFS and UI, synthetic data only. One browser build, one fixture, a loopback origin. No reload persistence, multi-tab, crash, quota-stress, performance, total-memory, physical-paint, encryption, freshness, authorisation, clinical or secure-erasure result. Plaintext frames in the profile are readable by anyone with access to it.
+
+### Updates to deferred items
+
+| Item | Change |
+|---|---|
+| Plaintext OPFS control | Now implemented and browser-verified within the synthetic profile; supersedes its earlier deferred status for this control only |
+| Ciphertext OPFS, AES-GCM envelope, key custody, study policy, shared reuse | Unchanged and deferred; the plaintext control does not establish any of them |
+| Optional P3 prefetch | Not started; needs a separate decision and equal-trace comparison against the RAM-only prefetch result |
+| Multi-tab coordination, crash atomicity, quota behaviour | Not tested; still outside the claims |
+
+### Unresolved concerns
+
+- The implementation commits exist only locally, and the detailed evidence is untracked; there is no remote backup of either. Remote availability is not asserted.
+- The aborted frame request in the first P3 main run is unexplained. A further run with the frame number recorded is proposed to classify it.
+- The 128 KiB root cap remains global with a first-live-namespace advantage, and own-temporary-file recovery without locks assumes exclusive namespace ownership. Both are documented limits, not fixed.
+- A crash can leave plaintext in the profile until a later recovery pass; deletion is application cleanup, not media sanitisation.
+
+### Next checkpoint — 2026-11-01 (later)
+
+Classify the aborted-request anomaly with one more run, and back up the local commits and evidence. Then decide, against the presentation deadline, between the optional P3 prefetch comparison and freezing the demonstration (rehearsal order, screenshots, and the equal-trace comparison of P1, P2 and P3). The encrypted tier, key custody, study policy and shared reuse remain separate, deferred work. No performance claim is made until a defined workload is measured.
