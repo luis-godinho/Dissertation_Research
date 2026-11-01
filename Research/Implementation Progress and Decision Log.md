@@ -1,7 +1,7 @@
 ---
 status: evolving
 tags: [research, implementation, decisions, progress]
-updated: 2026-10-28
+updated: 2026-11-01
 ---
 
 # Implementation Progress and Decision Log
@@ -283,6 +283,7 @@ Preserve dated history and explain supersession. Keep design decisions, implemen
 
 - 2026-10-24: recorded the dev-based implementation vehicle, synthetic fixture and limited native-frame decisions; preserved the initial 43-test run and review finding, then recorded its correction, local unpushed commit `b6476c0`, and latest 44-test focused verification. Cache/security/performance extensions remain explicitly deferred.
 - 2026-10-28: added native-frame browser verification, the revised visual-cache demonstration scope, native RAM core and sliding-window retention results, and the next viewer-integration decisions. Earlier dated entries remain historical.
+- 2026-11-01: recorded the RAM-only browser evidence, the decision to add a plaintext OPFS + RAM control ahead of the encrypted tier, the storage adapter and its test results, the adapter review findings, and the next sequencing decisions. Earlier dated entries remain historical.
 
 ## Continuation — 2026-10-28
 
@@ -380,3 +381,129 @@ The latest inspected revision is `fe2bf244a229725ed4efd74ee6b02a84bac45661`, wit
 Integrate the existing native cache and window policy into the viewer without replacing P0/P1. Verify direct selections `1,2,1`: three frame requests in P1, two in retained P2. Also test eviction/revisit misses, fresh wrapper input on hits, mode switches, clear RAM, close and pending-presentation invalidation. Distinguish unit/integration tests from live browser behaviour.
 
 Then add the truthful residency strip and lifecycle handling, and capture the P0/P1/P2 comparison with matching cache snapshots, counters and network observations. OPFS, encryption, study policy, shared keys, prefetch and the eight-image/500 ms target remain separate work. No plaintext persistence, cross-user security or completed P2 demonstration is implied.
+
+## Continuation — 2026-11-01
+
+### Current snapshot
+
+| Area | State | Verification / limit |
+|---|---|---|
+| Implementation vehicle | Same `feat/dissertation-frame-baseline` branch | RAM-only live evidence taken at local revision `cdfbff7f601d663453b9b7b77d6d3dc70af1b822` (`feat(webapp): add bounded P2 residency and lifecycle integration`); plaintext OPFS work since then is uncommitted; remote publication is not asserted |
+| P0/P1/P2 RAM-only demonstration | Verified in two browser rehearsals | Headless Chromium through nginx at 1440×900; 119 focused frontend tests passing; OPFS disabled during these runs |
+| Plaintext OPFS + RAM control (P3) | Scope decided; storage adapter implemented | 145 focused tests passing against an in-memory OPFS substitute; no real-browser OPFS run yet |
+| Adapter review | Completed | Three High and four Medium findings, concerning peak usage, residue and accounting rather than false residency |
+| Real-browser adapter check | Planned | Temporary browser profile and loopback origin; not run |
+| Dual-window policy | Approved; not yet implemented | Pure decision function, no storage or network access |
+| Viewer integration, OPFS/BOTH visuals, lifecycle handling, optional dual-tier prefetch | Planned | None started |
+| Encryption, key custody, shared reuse | Deferred | Unchanged |
+
+The 119- and 145-test results are successive runs of the same growing focused suite, not independent totals to add together. Tests that pass against an in-memory OPFS substitute establish the adapter's logic, not real browser storage behaviour.
+
+### ID-18 — Keep the RAM-only run as the comparison baseline
+
+Decision: retain the RAM-only P0/P1/P2 browser evidence unchanged as the baseline against which the dual-tier mode is compared. The executed prefetch comparison (trace 1, 5, 6, 7, 8 at 700 ms pacing with explicit termination) is authoritative over the shorter trace used in earlier planning.
+
+Reason: the final demonstration includes a persistent tier, so each set of evidence must remain attributable to the configuration that produced it.
+
+Consequence: dual-tier evidence is collected separately and does not overwrite the RAM-only results, which were taken with the OPFS lanes disabled.
+
+### ID-19 — Add a plaintext OPFS + RAM control (P3) ahead of the encrypted tier
+
+Decision: add P3, an opt-in, synthetic-only control combining the bounded RAM tier with a plaintext OPFS tier. The viewer still starts in P1; P0, P1 and P2 keep their meanings. Limits: RAM 1 behind / 1 ahead, 32 KiB, 8 KiB per entry, five entries; OPFS 3 behind / 3 ahead, 64 KiB committed, 8 KiB per entry, eight entries, and a 128 KiB root-wide cap on all application-owned files (committed, temporary, replacement and lease files). One active write and one queued write per viewer, with pending payload bounded at 16 KiB; a full queue is a visible error, not an unbounded retry.
+
+Reason: the persistence tier's mechanics, window behaviour and visuals can be measured and shown before cryptography is added, using synthetic data only. A 3/3 window needs at most seven frames (57,344 bytes), which fits the 64 KiB cap with one entry of headroom. A frame held in both tiers is counted once in each; storage accounting is not deduplicated.
+
+Consequence: this supersedes, for the plaintext control only, the earlier statements that no unencrypted OPFS mode is selected and that OPFS follows the cryptographic work. It is not encryption, access control, freshness, shared-user reuse or secure erasure, and it must never be presented as the final secure design. Its storage namespace stays separate from any later encrypted tier. The final target remains shared encrypted OPFS plus bounded native RAM.
+
+### ID-20 — Store only verified native bytes and verify them on every read
+
+Decision: store exactly the validated `native-frame-v1` bytes — never the transient wrapper, a whole instance, a PNG or decoded pixels — as one file per frame with a fixed 80-byte header (magic, format version, payload length, a digest over the full cache key, and a payload SHA-256). Reads require a caller-supplied fixed fixture digest taken from an immutable table of the 11 synthetic frames (eight multiframe, three single-frame). Size, header, context, self-stored checksum and fixture digest are all checked before any byte is returned or promoted to RAM. If hashing is unavailable, the adapter reports `digest-unavailable` and nothing is treated as verified.
+
+Reason: the expected identity must come from the request, never from what a stored file claims, and a corrupted or mismatched candidate must stop before decode.
+
+Consequence: the checksum and digest detect accidental corruption and fixture mismatch. They are not authentication against someone who can modify the files, and the fixed fixture version is not a freshness mechanism. No file name or header carries a UID, token, principal or session value.
+
+### ID-21 — Bound ownership, concurrency and recovery of plaintext storage
+
+Decision: each viewer uses a random opaque namespace under a dedicated versioned root, with one active writer per namespace and no reuse across reload, session, user or device. Publication writes a temporary file, closes it, verifies its size and only then publishes the final entry (rename when `move()` exists; copy, verify and delete otherwise); residency is declared only after publication. A namespace is treated as abandoned, and removed, only when its Web Lock can be acquired and its five-minute lease (30-second heartbeat) has expired. Without lock support, an existing lease or existing files block admission instead of being guessed at. Recovery and deletion stay inside the dedicated root. Clear RAM keeps the disk tier. Mode exit, close and observed logout invalidate reads immediately and then drain and delete the owned namespace. Window movement deletes entries outside the OPFS window and never triggers fetching. Unsupported storage or a quota failure yields labelled degraded RAM-only display with a visible storage error and no false OPFS residency. Manual Clear OPFS and Clear Both controls act on the owned namespace only.
+
+Reason: stale plaintext must not accumulate silently, and one viewer must not delete another live viewer's files.
+
+Consequence: a crash can leave plaintext behind until a later bounded recovery pass, and deletion is best-effort application cleanup, not media sanitisation. The root cap is shared across live viewers, so an earlier viewer can leave a later one little room; this is accepted and must surface as an explicit capacity error. No multi-tab transaction or crash-atomicity claim is made.
+
+### ID-22 — Paint P3 residency only from committed storage
+
+Decision: grey means absent from the observed tiers; blue, committed native RAM; purple, committed and size-verified plaintext OPFS; a split tile, both tiers. Pending write (`S`), pending delete (`X`), storage errors, requested, displayed and the two desired windows (`Wr` for RAM, `Wo` for OPFS) are separate markers. A queued write never turns a tile purple, and a delete in progress keeps the entry present but ineligible until deletion is confirmed. The source of the last completed selection (`network`, `ram` or `opfs`) is recorded separately from any promotion to RAM. A permanent banner states that the mode is plaintext, synthetic and not encrypted.
+
+Reason: window membership, a queued write and committed storage are different facts, and showing them as one would misstate the experiment.
+
+Consequence: visuals follow the adapter's committed, deleting and error events and its bounded snapshots, not an expected animation or filesystem polling. Eight frames shown in one viewport remain navigation targets, not simultaneous images.
+
+### ID-23 — Fix the adapter's High findings before integrating it
+
+Decision: after the pure dual-window policy and a trimmed real-browser check, correct the adapter's High findings, together with the inexpensive Medium ones, in a bounded task before it is wired into the viewer. Whether the publication fallback stays is left open until the browser check records whether the target browser supports `move()`. The alternatives are to require `move()` and report unsupported browsers as degraded, or to reserve and clean up the fallback completely.
+
+Reason: integration will rely on the adapter's byte accounting and cleanup, which the review found incomplete on the fallback and late-write paths.
+
+Consequence: the order is policy, browser check, adapter correction, integration, visuals, lifecycle handling and optional dual-tier prefetch, then live evidence. None of these is started yet.
+
+### 2026-11-01 — RAM-only live evidence
+
+Two equivalent rehearsals ran from fresh headless-Chromium contexts through the existing nginx route at 1440×900, after a frontend-only rebuild so the served bundle contained the P2, residency and prefetch interface. The backend, volumes, fixture and index were untouched. Both runs produced identical phase-level counts and no console or page errors.
+
+| Check | Observed |
+|---|---|
+| P0 full instance | 66,876 bytes; hash matches the fixture manifest |
+| P1, frames 1–8 then revisit 1 | Nine frame-body responses, none prefetch; frame-1 hash matches |
+| P2, prefetch off, 1, 2, 1 | Two frame requests; the revisit is a RAM hit; 8,192 bytes per entry; two entries / 16,384 bytes |
+| P2, move to frame 8, revisit 1 | Earlier entries evicted; frame 1 fetched again |
+| Clear RAM | 0 entries / 0 bytes; the displayed picture stays as transient state and is not relabelled reusable |
+| P2 to P1 | No hidden reuse; the first P1 frame performs a network request |
+| Invalid response for frame 6 | Rejected before commit with a visible error; 0 entries retained |
+| Delayed network (1.2 s) | Pending marker shown while the previous frame stays displayed; final frame committed |
+| Close, reopen, logout | No late frame responses in the observation window; reopen starts from an empty cache |
+| P0 after the P2 work | Opens and renders |
+
+Controlled prefetch comparison (trace 1, 5, 6, 7, 8; fresh sessions; 700 ms pacing; prefetch switched off and settled at the end): with prefetch off there were five demand requests; with it on there were two demand and three prefetch requests, and frames 6–8 were served from RAM (three useful completed prefetch hits). The total was five frame requests in both arms, because the same frames were fetched, only earlier. No speedup is claimed.
+
+Limits: the delay was applied to the network response only, so this is not delayed-decode evidence. No total browser memory, GPU, physical paint, TTFB, backend I/O, OPFS, encryption or freshness result was obtained. The browser harness printed target-closed noise at teardown after the evidence was written, and the intentionally intercepted frame request appears as an aborted request. Three harness-only corrections were needed before the successful runs; no application source changed. Timing values are in-page selection-to-source and selection-to-commit boundaries only.
+
+### 2026-11-01 — Plaintext OPFS storage adapter implemented
+
+Implemented a standalone adapter (`nativeFramePlaintextOpfs.ts`) with `open`, `get`, `put`, `invalidate`, `clearOwned`, `drain`, `close`, `recover`, `snapshot`, `eventsSince`, `activate` and `capabilities`, plus the immutable 11-frame digest table (`nativeFrameFixtureDigests.ts`). The adapter performs no fetching, decoding or presentation, and no viewer, session or mode code changed.
+
+Behaviour recorded: exact `native-frame-v1` payloads behind the 80-byte header; opaque aliases only in names, snapshots and events; the 64 KiB / 8 KiB / 8-entry and 128 KiB root caps with peak-byte reservation before any temporary file is created; one active and one queued write with queue-full rejection; failed deletes keep their bytes counted against the root cap; replacement keeps the old complete entry until the new one is published; a bounded root scan (32 namespaces, 64 files); bounded, revisioned events (`queued`, `writing`, `committed`, `invalidated`, `deleting`, `deleted`, `rejected`, `error`, `cleared`) in which `committed` follows confirmed publication only.
+
+Verification: 145 focused tests passing (the 119 existing plus 26 new), type-check, lint and build passing, with the existing configuration and chunk-size warnings. The digest table was compared with the generated manifest when it was present, and the comparison reports "not run" instead of passing when the manifest is absent; both branches were exercised.
+
+Limits: every test used an in-memory OPFS substitute. Real browser OPFS, quota, Web Locks, persistence and crash behaviour were not exercised. The substitute always provides `move()`, so the no-`move()` publication path was never tested.
+
+### 2026-11-01 — Adapter review findings
+
+A read-only review of the adapter and its tests found peak-usage, residue and accounting gaps. None showed a false `committed` state.
+
+| Finding | Severity | Summary |
+|---|---|---|
+| F1 | High | The no-`move()` fallback reserves one new file while temporary and final copies coexist, so it can exceed the root cap near the limit |
+| F2 | High | A failed or partial fallback can leave an unindexed final file that recovery does not remove and that still counts against the cap |
+| F3 | High | A write that outlives the 5 s drain can leave files after clear or close, and late cleanup failures are not added to the failed-delete total |
+| F4 | Medium | A failed `open` can leave a live lease that blocks another owner until it expires |
+| F5 | Medium | Recovery does not distinguish busy, skipped or scan-limit outcomes from "nothing to recover" |
+| F6 | Medium | The 128 KiB root cap is global, so the first live namespace has an advantage; two live namespaces are not tested |
+| F7 | Medium | An active temporary file can be counted twice (observed bytes and reservation) |
+| F8 | Low/Medium | `activate` changes in-memory ownership before the lease write succeeds |
+| F9 | Low | Own-temporary-file recovery assumes exclusive namespace ownership when locks are unavailable |
+
+The existing tests still support the absence of false committed residency. They do not cover the fallback residue, late-write cleanup residue, failed-open lease, busy and scan-limit results, two live namespaces, activation failure or the no-lock temporary-file case.
+
+### Planned — dual-window policy and trimmed real-browser check
+
+Pure dual-window policy (approved, not implemented): a decision function over actual descriptors that distinguishes desired, actual and planned states. RAM keeps 1/1 and OPFS 3/3, each clamped at the instance ends; leaving the RAM window removes only the RAM copy, and leaving the OPFS window plans deletion of the disk copy only. Pending writes and deletes reserve bytes without creating or removing residency, and a planned deletion stays present until confirmed. The root-cap projection is a peak physical figure (external bytes, owned entries, pending deletes and writes, incoming and replacement copies). Pressure order is outside the window, then farthest, then least recently used, then a stable tie-break. Missing neighbours are never fetched or published, and a stale or wrong-context plan is rejected before any pressure decision.
+
+Real-browser check (approved in trimmed form, not run): a temporary browser profile and loopback origin, limited to smoke namespaces under the owned root, exercising the native OPFS handles only. It stores, reads and verifies one synthetic frame, rejects a wrong digest, clears and closes, and records whether `move()` is available. The sanitised result is kept before the temporary directory is removed. The fallback arm is held until the `move()` decision above.
+
+### Next checkpoint — 2026-11-01
+
+Implement the pure dual-window policy, run the trimmed real-browser check, then decide the publication fallback and correct the adapter's High findings (with F4, F5 and F7 and tests for two live namespaces and activation failure). Only then integrate the OPFS tier into the viewer as P3, add the committed-state residency visuals and Clear OPFS / Clear Both controls, cover the asynchronous lifecycle cases, and optionally extend the one-neighbour prefetch to P3. Live dual-tier evidence follows, compared against the RAM-only baseline with equal traces, pacing and termination.
+
+Standing limits: the plaintext tier is not encryption, access control, freshness or secure erasure; leftovers after a crash and the shared root cap are accepted limitations; real OPFS behaviour is unverified until the browser check; encryption, key custody, study-level policy and shared reuse remain separate, deferred work. No performance, total-memory, physical-paint or eight-image/500 ms claim is made.
